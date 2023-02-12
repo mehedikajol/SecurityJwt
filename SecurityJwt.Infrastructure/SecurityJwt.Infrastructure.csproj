@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SecurityJwt.Application\SecurityJwt.Application.csproj" />
     <ProjectReference Include="..\SecurityJwt.Domain\SecurityJwt.Domain.csproj" />
   </ItemGroup>
 
