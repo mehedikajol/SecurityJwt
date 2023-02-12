@@ -1,6 +1,17 @@
+using Microsoft.EntityFrameworkCore;
+using SecurityJwt.Domain.Common;
+using SecurityJwt.Infrastructure.DbContext;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
+
+// add connection string
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConneciton")));
+
+// generate classes from appsettings 
+builder.Services.Configure<JwtConfig>(builder.Configuration.GetSection("JwtConfig"));
 
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
