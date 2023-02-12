@@ -27,11 +27,11 @@ public class GenericRepository<TEntity> : IGenericRepository<TEntity> where TEnt
 
     public virtual async Task<IEnumerable<TEntity>> FindEntities(Expression<Func<TEntity, bool>> expression)
     {
-        var entities = _dbSet.Where(expression);
+        var entities = await _dbSet.Where(expression).ToListAsync();
         return entities;
     }
 
-    public virtual async Task<TEntity> GetEntityById(int id)
+    public virtual async Task<TEntity> GetEntityById(Guid id)
     {
         var entity = await _dbSet.FindAsync(id);
         return entity;

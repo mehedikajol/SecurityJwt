@@ -11,7 +11,7 @@ public interface IGenericRepository<TEntity> where TEntity : class
 {
     Task<IEnumerable<TEntity>> GetAllEntities();
     Task<IEnumerable<TEntity>> FindEntities(Expression<Func<TEntity, bool>> expression);
-    Task<TEntity> GetEntityById(int id);
+    Task<TEntity> GetEntityById(Guid id);
 
     Task<bool> AddEntity(TEntity entity);
     Task<bool> AddEntities(IEnumerable<TEntity> entities);
