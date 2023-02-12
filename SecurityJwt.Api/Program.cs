@@ -1,6 +1,13 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+using SecurityJwt.Application.IConfiguration;
 using SecurityJwt.Domain.Common;
+using SecurityJwt.Infrastructure.Configuration;
 using SecurityJwt.Infrastructure.DbContext;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,6 +24,41 @@ builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// added support for api versioning
+builder.Services.AddApiVersioning(options =>
+{
+    options.ReportApiVersions = true;
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    options.DefaultApiVersion = ApiVersion.Default;
+});
+
+// jwt token 
+var key = Encoding.ASCII.GetBytes(builder.Configuration["JwtConfig:Secret"]);
+var tokenValidationParameters = new TokenValidationParameters
+{
+    ValidateIssuerSigningKey = true,
+    IssuerSigningKey = new SymmetricSecurityKey(key),
+    ValidateIssuer = false, // TODO: will be set to true
+    ValidateAudience = false, // TODO: will be set to true
+    RequireExpirationTime = false, // TODO: will be set to true
+    ValidateLifetime = true,
+};
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+}).AddJwtBearer(opt =>
+{
+    opt.SaveToken = true;
+    opt.TokenValidationParameters = tokenValidationParameters;
+});
+
+// added dependencies
+builder.Services.AddSingleton(tokenValidationParameters);
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 var app = builder.Build();
 
