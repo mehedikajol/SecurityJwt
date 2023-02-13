@@ -239,11 +239,15 @@ namespace SecurityJwt.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Password")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("PhoneNumber")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<int>("Status")
+                    b.Property<bool>("Status")
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
