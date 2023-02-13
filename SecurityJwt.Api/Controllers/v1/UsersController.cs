@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using SecurityJwt.Api.RequestDTOs;
@@ -9,10 +11,14 @@ using System.ComponentModel.DataAnnotations;
 
 namespace SecurityJwt.Api.Controllers.v1;
 
+//[Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
 public class UsersController : BaseController
 {
     private readonly UserManager<IdentityUser> _userManager;
-    public UsersController(IUnitOfWork unitOfWork, UserManager<IdentityUser> userManager) : base(unitOfWork)
+    public UsersController(
+        IUnitOfWork unitOfWork,
+        UserManager<IdentityUser> userManager
+    ) : base(unitOfWork)
     {
         _userManager = userManager;
     }
@@ -62,7 +68,5 @@ public class UsersController : BaseController
         };
          
         return Ok(response);
-    }
-
-    
+    }    
 }

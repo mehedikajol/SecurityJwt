@@ -11,123 +11,122 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 
-namespace SecurityJwt.Api.Controllers.v1
+namespace SecurityJwt.Api.Controllers.v1;
+
+public class AuthController : BaseController
 {
-    public class AuthController : BaseController
+    private readonly UserManager<IdentityUser> _userManager;
+    private readonly JwtConfig _jwtConfig;
+
+    public AuthController(
+        IUnitOfWork unitOfWork, 
+        UserManager<IdentityUser> userManager,
+        IOptionsMonitor<JwtConfig> optionsMonitor
+    ) : base(unitOfWork)
     {
-        private readonly UserManager<IdentityUser> _userManager;
-        private readonly JwtConfig _jwtConfig;
+        _userManager = userManager;
+        _jwtConfig = optionsMonitor.CurrentValue;
+    }
 
-        public AuthController(
-            IUnitOfWork unitOfWork, 
-            UserManager<IdentityUser> userManager,
-            IOptionsMonitor<JwtConfig> optionsMonitor
-        ) : base(unitOfWork)
+    // Post --> Create user
+    [HttpPost]
+    [Route("Register")]
+    public async Task<IActionResult> Register([FromBody] UserRegisterRequestDto request)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest();
+
+        if (request.Password != request.ConfirmPassword)
+            return BadRequest();
+
+        var identityUser = new IdentityUser
         {
-            _userManager = userManager;
-            _jwtConfig = optionsMonitor.CurrentValue;
-        }
+            Email = request.Email,
+            UserName = request.Email,
+            EmailConfirmed = true,
+        };
 
-        // Post --> Create user
-        [HttpPost]
-        [Route("Register")]
-        public async Task<IActionResult> Register([FromBody] UserRegisterRequestDto request)
+        var isCreated = await _userManager.CreateAsync(identityUser, request.Password);
+
+        if (!isCreated.Succeeded)
+            return BadRequest();
+
+        var user = new User
         {
-            if (!ModelState.IsValid)
-                return BadRequest();
+            IdentityUserId = new Guid(identityUser.Id),
+            FirstName = request.FirstName,
+            LastName = request.LastName,
+            Email = request.Email,
+            Password = request.Password,
+            Status = true,
+            DateCreated = DateTime.Now,
+            DateOfBirth = DateTime.Now,
+        };
 
-            if (request.Password != request.ConfirmPassword)
-                return BadRequest();
+        await _unitOfWork.Users.AddEntity(user);
+        await _unitOfWork.CompleteAsync();
 
-            var identityUser = new IdentityUser
-            {
-                Email = request.Email,
-                UserName = request.Email,
-                EmailConfirmed = true,
-            };
-
-            var isCreated = await _userManager.CreateAsync(identityUser, request.Password);
-
-            if (!isCreated.Succeeded)
-                return BadRequest();
-
-            var user = new User
-            {
-                IdentityUserId = new Guid(identityUser.Id),
-                FirstName = request.FirstName,
-                LastName = request.LastName,
-                Email = request.Email,
-                Password = request.Password,
-                Status = true,
-                DateCreated = DateTime.Now,
-                DateOfBirth = DateTime.Now,
-            };
-
-            await _unitOfWork.Users.AddEntity(user);
-            await _unitOfWork.CompleteAsync();
-
-            var token = GenerateJwtToken(identityUser);
-            var response = new UserRegisterResponseDto
-            {
-                JwtToken = token
-            };
-
-            return Ok(response);
-        }
-
-        [HttpPost]
-        [Route("Login")]
-        public async Task<IActionResult> Login([FromBody] UserLoginRequestDto request)
+        var token = GenerateJwtToken(identityUser);
+        var response = new UserRegisterResponseDto
         {
-            if (!ModelState.IsValid) return BadRequest();
+            JwtToken = token
+        };
 
-            var identityUser = await _userManager.FindByEmailAsync(request.Email);
-            if(identityUser is null) return NotFound();
+        return Ok(response);
+    }
 
-            var user = await _unitOfWork.Users.GetUserByIdentityId(new Guid(identityUser.Id));
-            if (user == null) return NotFound();
-            if(user.Status == false) return BadRequest();
+    [HttpPost]
+    [Route("Login")]
+    public async Task<IActionResult> Login([FromBody] UserLoginRequestDto request)
+    {
+        if (!ModelState.IsValid) return BadRequest(request);
 
-            var isVerified = await _userManager.CheckPasswordAsync(identityUser, request.Password);
-            if(!isVerified)
-                return BadRequest();
+        var identityUser = await _userManager.FindByEmailAsync(request.Email);
+        if(identityUser is null) return NotFound();
 
-            var token = GenerateJwtToken(identityUser);
-            var response = new UserLoginResponseDto()
-            {
-                JwtToken = token
-            };
-            return Ok(response);
-        }
+        var user = await _unitOfWork.Users.GetUserByIdentityId(new Guid(identityUser.Id));
+        if (user == null) return NotFound();
+        if(user.Status == false) return BadRequest();
 
+        var isVerified = await _userManager.CheckPasswordAsync(identityUser, request.Password);
+        if(!isVerified)
+            return BadRequest();
 
-
-        // generate jwt token
-        private string GenerateJwtToken(IdentityUser user)
+        var token = GenerateJwtToken(identityUser);
+        var response = new UserLoginResponseDto()
         {
-            var jwtHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(_jwtConfig.Secret);
+            JwtToken = token
+        };
+        return Ok(response);
+    }
 
-            var tokenDescriptor = new SecurityTokenDescriptor
+
+
+    // generate jwt token
+    private string GenerateJwtToken(IdentityUser user)
+    {
+        var jwtHandler = new JwtSecurityTokenHandler();
+        var key = Encoding.ASCII.GetBytes(_jwtConfig.Secret);
+
+        var tokenDescriptor = new SecurityTokenDescriptor
+        {
+            Subject = new ClaimsIdentity(new[]
             {
-                Subject = new ClaimsIdentity(new[]
-                {
-                    new Claim("Id", user.Id),
-                    new Claim(JwtRegisteredClaimNames.Sub, user.Email),
-                    new Claim(JwtRegisteredClaimNames.Name, user.Email),
-                    new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()) // will be used bt the refresh token
-                }),
-                Expires = DateTime.UtcNow.AddMonths(6),
-                SigningCredentials = new SigningCredentials(
-                    new SymmetricSecurityKey(key),
-                    SecurityAlgorithms.HmacSha256Signature
-                )
-            };
+                new Claim("Id", user.Id),
+                new Claim(JwtRegisteredClaimNames.Sub, user.Email),
+                new Claim(JwtRegisteredClaimNames.Name, user.Email),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()) // will be used bt the refresh token
+            }),
+            Expires = DateTime.UtcNow.AddMonths(6),
+            SigningCredentials = new SigningCredentials(
+                new SymmetricSecurityKey(key),
+                SecurityAlgorithms.HmacSha256Signature
+            )
+        };
 
-            var token = jwtHandler.CreateToken(tokenDescriptor);
-            var jwtToken = jwtHandler.WriteToken(token);
+        var token = jwtHandler.CreateToken(tokenDescriptor);
+        var jwtToken = jwtHandler.WriteToken(token);
 
-            return jwtToken;
-        }
+        return jwtToken;
     }
 }
