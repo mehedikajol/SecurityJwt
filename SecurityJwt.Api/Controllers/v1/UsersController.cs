@@ -64,48 +64,5 @@ public class UsersController : BaseController
         return Ok(response);
     }
 
-    // Post --> Create user
-    [HttpPost]
-    public async Task<IActionResult> Register([FromBody]UserRegisterRequestDto request)
-    {
-        if(!ModelState.IsValid)
-            return BadRequest();
-
-        if(request.Password != request.ConfirmPassword)
-            return BadRequest();
-
-        var identityUser = new IdentityUser
-        {
-            Email= request.Email,
-            UserName = request.Email,
-            EmailConfirmed = true,
-        };
-
-        var isCreated = await _userManager.CreateAsync(identityUser, request.Password);
-
-        if(!isCreated.Succeeded)
-            return BadRequest();
-
-        var user = new User
-        {
-            IdentityUserId = new Guid(identityUser.Id),
-            FirstName = request.FirstName,
-            LastName = request.LastName,
-            Email = request.Email,
-            Password = request.Password,
-            Status = true,
-            DateCreated = DateTime.Now,
-            DateOfBirth = DateTime.Now,
-        };
-
-        await _unitOfWork.Users.AddEntity(user);
-        await _unitOfWork.CompleteAsync();
-
-        var response = new UserRegisterResponseDto
-        {
-            JwtToken = "this is just a demo token"
-        };
-
-        return Ok(response);
-    }
+    
 }

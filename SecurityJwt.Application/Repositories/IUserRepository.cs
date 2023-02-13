@@ -9,4 +9,5 @@ namespace SecurityJwt.Application.Repositories;
 
 public interface IUserRepository : IGenericRepository<User>
 {
+    Task<User> GetUserByIdentityId(Guid id);
 }
