@@ -5,9 +5,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using SecurityJwt.Application.IConfiguration;
+using SecurityJwt.Application.IServices;
 using SecurityJwt.Domain.Common;
 using SecurityJwt.Infrastructure.Configuration;
 using SecurityJwt.Infrastructure.DbContext;
+using SecurityJwt.Infrastructure.Services;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -97,6 +99,7 @@ builder.Services.AddSwaggerGen(c =>
 // added dependencies
 builder.Services.AddSingleton(tokenValidationParameters);
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 
 var app = builder.Build();
 

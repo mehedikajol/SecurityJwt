@@ -1,13 +1,9 @@
 ﻿using Microsoft.Extensions.Logging;
 using SecurityJwt.Application.IConfiguration;
-using SecurityJwt.Application.Repositories;
+using SecurityJwt.Application.IRepositories;
+using SecurityJwt.Application.IServices;
 using SecurityJwt.Infrastructure.DbContext;
 using SecurityJwt.Infrastructure.Repositories;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace SecurityJwt.Infrastructure.Configuration;
 
@@ -21,12 +17,13 @@ public class UnitOfWork : IUnitOfWork, IDisposable
 
     public UnitOfWork(
         AppDbContext context, 
-        ILoggerFactory logger)
+        ILoggerFactory logger,
+        ICurrentUserService currentUserService)
     {
         _context = context;
         _logger = logger.CreateLogger("db_logs");
 
-        Users = new UserRepository(context, _logger);
+        Users = new UserRepository(context, _logger, currentUserService);
     }
 
     public async Task CompleteAsync()

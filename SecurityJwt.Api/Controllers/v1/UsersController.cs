@@ -1,7 +1,4 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Identity;
+﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using SecurityJwt.Api.RequestDTOs;
 using SecurityJwt.Api.ResponseDTOs;
@@ -68,5 +65,26 @@ public class UsersController : BaseController
         };
          
         return Ok(response);
-    }    
+    }
+
+    // Put --> update profile
+    [HttpPut]
+    public async Task<IActionResult> UpdateProfile([FromBody] ProfileRequestDto request)
+    {
+        var user = new User
+        {
+            FirstName = request.FirstName,
+            LastName = request.LastName,
+            PhoneNumber = request.PhoneNumber,
+            DateOfBirth = request.DateOfBirth,
+        };
+        var response = await _unitOfWork.Users.UpdateUserAsync(user);
+
+        if (!response)
+            return NotFound();
+
+        await _unitOfWork.CompleteAsync();
+
+        return Ok();
+    }
 }

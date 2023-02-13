@@ -1,6 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using SecurityJwt.Application.Repositories;
+using SecurityJwt.Application.IRepositories;
 using SecurityJwt.Infrastructure.DbContext;
 using System.Linq.Expressions;
 
