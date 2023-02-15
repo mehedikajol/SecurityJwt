@@ -11,5 +11,6 @@ public class AppDbContext : IdentityDbContext
 
     // all database table --> excepts the seven tables provided by asp.net core
 	public DbSet<User> Users { get; set; }
+	public DbSet<RefreshToken> RefreshTokens { get; set; }
 
 }

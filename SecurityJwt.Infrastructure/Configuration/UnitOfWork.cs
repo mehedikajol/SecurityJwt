@@ -14,6 +14,7 @@ public class UnitOfWork : IUnitOfWork, IDisposable
 
     // all repositories
     public IUserRepository Users { get; private set; }
+    public IRefreshTokenRepository RefreshTokens { get; set; }
 
     public UnitOfWork(
         AppDbContext context, 
@@ -24,6 +25,7 @@ public class UnitOfWork : IUnitOfWork, IDisposable
         _logger = logger.CreateLogger("db_logs");
 
         Users = new UserRepository(context, _logger, currentUserService);
+        RefreshTokens = new RefreshTokenRepository(context, _logger);
     }
 
     public async Task CompleteAsync()

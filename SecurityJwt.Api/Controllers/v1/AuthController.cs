@@ -7,9 +7,11 @@ using SecurityJwt.Api.ResponseDTOs;
 using SecurityJwt.Application.IConfiguration;
 using SecurityJwt.Domain.Common;
 using SecurityJwt.Domain.Entities;
+using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace SecurityJwt.Api.Controllers.v1;
 
@@ -19,7 +21,7 @@ public class AuthController : BaseController
     private readonly JwtConfig _jwtConfig;
 
     public AuthController(
-        IUnitOfWork unitOfWork, 
+        IUnitOfWork unitOfWork,
         UserManager<IdentityUser> userManager,
         IOptionsMonitor<JwtConfig> optionsMonitor
     ) : base(unitOfWork)
@@ -33,11 +35,37 @@ public class AuthController : BaseController
     [Route("Register")]
     public async Task<IActionResult> Register([FromBody] UserRegisterRequestDto request)
     {
+        var response = new UserRegisterResponseDto();
+        response.IsSuccess = false;
+        response.RefreshToken = "";
+        response.JwtToken = "";
+
+        var passwordRegex = new Regex("^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$");
+
         if (!ModelState.IsValid)
-            return BadRequest();
+        {
+            response.ErrorMessage = "Invalid request.";
+            return BadRequest(response);
+        }
+
+        if(!passwordRegex.IsMatch(request.Password))
+        {
+            response.ErrorMessage = "Passwords not validated.";
+            return BadRequest(response);
+        }
 
         if (request.Password != request.ConfirmPassword)
-            return BadRequest();
+        {
+            response.ErrorMessage = "Passwords do not match.";
+            return BadRequest(response);
+        }
+
+        var userExist = await _unitOfWork.Users.CheckIfUserExistByEmail(request.Email);
+        if (userExist)
+        {
+            response.ErrorMessage = "Invalid request.";
+            return BadRequest(response);
+        }
 
         var identityUser = new IdentityUser
         {
@@ -49,7 +77,10 @@ public class AuthController : BaseController
         var isCreated = await _userManager.CreateAsync(identityUser, request.Password);
 
         if (!isCreated.Succeeded)
-            return BadRequest();
+        {
+            response.ErrorMessage = "Error processing you request.";
+            return BadRequest(response);
+        }
 
         var user = new User
         {
@@ -57,49 +88,120 @@ public class AuthController : BaseController
             FirstName = request.FirstName,
             LastName = request.LastName,
             Email = request.Email,
-            Password = request.Password,
             Status = true,
             DateCreated = DateTime.Now,
             DateOfBirth = DateTime.Now,
         };
 
         await _unitOfWork.Users.AddEntity(user);
-        await _unitOfWork.CompleteAsync();
 
         var token = GenerateJwtToken(identityUser);
-        var response = new UserRegisterResponseDto
+        var refreshToken = new RefreshToken
         {
-            JwtToken = token
+            Token = $"{RandomStringGenerator(25)}_{Guid.NewGuid()}",
+            JwtToken = token,
+            IsUsed = false,
+            Status = true,
+            DateExpire = DateTime.UtcNow.AddMonths(1),
+            IdentityUserId = identityUser.Id.ToString()
         };
+        await _unitOfWork.RefreshTokens.AddEntity(refreshToken);
+
+        await _unitOfWork.CompleteAsync();
+
+        response.IsSuccess = true;
+        response.ErrorMessage = "";
+        response.JwtToken = token;
+        response.RefreshToken = refreshToken.Token;
+
+        return Ok(response);
+    }
+
+
+    // Post -> User login
+    [HttpPost]
+    [Route("Login")]
+    public async Task<IActionResult> Login([FromBody] UserLoginRequestDto request)
+    {
+        var response = new UserLoginResponseDto();
+        response.IsSuccess = false;
+        response.RefreshToken = "";
+        response.JwtToken = "";
+
+        if (!ModelState.IsValid) 
+        {
+            response.ErrorMessage = "Invalid request.";
+            return BadRequest(response); 
+        }
+
+        var identityUser = await _userManager.FindByEmailAsync(request.Email);
+        if (identityUser is null)
+        {
+            response.ErrorMessage = "Email or password is not correct.";
+            return NotFound(response);
+        }
+
+        var user = await _unitOfWork.Users.GetUserByIdentityId(new Guid(identityUser.Id));
+        if (user == null)
+        {
+            response.ErrorMessage = "Email or password is not correct.";
+            return NotFound(response);
+        }
+        if (user.Status == false) 
+        {
+            response.ErrorMessage = "Email or password is not correct.";
+            return BadRequest(response);
+        }
+
+        var isVerified = await _userManager.CheckPasswordAsync(identityUser, request.Password);
+        if (!isVerified)
+        {
+            response.ErrorMessage = "Email or password is not correct.";
+            return BadRequest(response);
+        }
+
+        var token = GenerateJwtToken(identityUser);
+        var refreshToken = new RefreshToken
+        {
+            Token = $"{RandomStringGenerator(25)}_{Guid.NewGuid()}",
+            JwtToken = token,
+            IsUsed = false,
+            Status = true,
+            DateExpire = DateTime.UtcNow.AddMonths(1),
+            IdentityUserId = identityUser.Id.ToString()
+        };
+
+        await _unitOfWork.RefreshTokens.AddEntity(refreshToken);
+        await _unitOfWork.CompleteAsync();
+
+        response.IsSuccess = true;
+        response.ErrorMessage = "";
+        response.JwtToken = token;
+        response.RefreshToken = refreshToken.Token;
 
         return Ok(response);
     }
 
     [HttpPost]
-    [Route("Login")]
-    public async Task<IActionResult> Login([FromBody] UserLoginRequestDto request)
+    [Route("RefreshToken")]
+    public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequestDto request)
     {
-        if (!ModelState.IsValid) return BadRequest(request);
+        var response = new RefreshTokenResponseDto();
 
-        var identityUser = await _userManager.FindByEmailAsync(request.Email);
-        if(identityUser is null) return NotFound();
-
-        var user = await _unitOfWork.Users.GetUserByIdentityId(new Guid(identityUser.Id));
-        if (user == null) return NotFound();
-        if(user.Status == false) return BadRequest();
-
-        var isVerified = await _userManager.CheckPasswordAsync(identityUser, request.Password);
-        if(!isVerified)
-            return BadRequest();
-
-        var token = GenerateJwtToken(identityUser);
-        var response = new UserLoginResponseDto()
+        if (!ModelState.IsValid)
         {
-            JwtToken = token
+            return BadRequest();
+        }
+
+
+        response = new RefreshTokenResponseDto()
+        {
+            JwtToken = request.JwtToken,
+            RefreshToken = request.RefreshToken
         };
+
         return Ok(response);
     }
-
 
 
     // generate jwt token
@@ -128,5 +230,14 @@ public class AuthController : BaseController
         var jwtToken = jwtHandler.WriteToken(token);
 
         return jwtToken;
+    }
+
+    // Random string generator
+    private string RandomStringGenerator(int length)
+    {
+        var random = new Random();
+        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        return new string(Enumerable.Repeat(chars, length)
+            .Select(s => s[random.Next(s.Length)]).ToArray());
     }
 }
