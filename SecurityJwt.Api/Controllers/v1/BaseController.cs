@@ -11,7 +11,9 @@ public class BaseController : ControllerBase
 {
     protected IUnitOfWork _unitOfWork;
 
-    public BaseController(IUnitOfWork unitOfWork)
+    public BaseController(
+        IUnitOfWork unitOfWork
+    )
     {
         _unitOfWork = unitOfWork;
     }
