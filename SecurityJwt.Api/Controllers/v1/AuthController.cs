@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Identity;
+﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -19,16 +20,23 @@ public class AuthController : BaseController
 {
     private readonly UserManager<IdentityUser> _userManager;
     private readonly JwtConfig _jwtConfig;
+    private readonly TokenValidationParameters _tokenValidationParameters;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     public AuthController(
         IUnitOfWork unitOfWork,
         UserManager<IdentityUser> userManager,
-        IOptionsMonitor<JwtConfig> optionsMonitor
+        IOptionsMonitor<JwtConfig> optionsMonitor,
+        TokenValidationParameters tokenValidationParameters,
+        IHttpContextAccessor httpContextAccessor
     ) : base(unitOfWork)
     {
         _userManager = userManager;
         _jwtConfig = optionsMonitor.CurrentValue;
+        _tokenValidationParameters = tokenValidationParameters;
+        _httpContextAccessor = httpContextAccessor;
     }
+
 
     // Post --> Create user
     [HttpPost]
@@ -89,8 +97,8 @@ public class AuthController : BaseController
             LastName = request.LastName,
             Email = request.Email,
             Status = true,
-            DateCreated = DateTime.Now,
-            DateOfBirth = DateTime.Now,
+            DateCreated = DateTime.UtcNow,
+            DateOfBirth = DateTime.UtcNow,
         };
 
         await _unitOfWork.Users.AddEntity(user);
@@ -182,27 +190,179 @@ public class AuthController : BaseController
         return Ok(response);
     }
 
+
+    // Post -> Generate new jwt token and refresh token
     [HttpPost]
     [Route("RefreshToken")]
     public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequestDto request)
     {
         var response = new RefreshTokenResponseDto();
+        response.IsSuccess = false;
+        response.RefreshToken = "";
+        response.JwtToken = "";
 
         if (!ModelState.IsValid)
         {
-            return BadRequest();
+            response.ErrorMessage = "Invalid request";
+            return BadRequest(response);
         }
 
-
-        response = new RefreshTokenResponseDto()
+        var isVerified = await VerifyToken(request);
+        if (!isVerified.IsSuccess)
         {
-            JwtToken = request.JwtToken,
-            RefreshToken = request.RefreshToken
-        };
+            response.ErrorMessage = isVerified.ErrorMessage;
+            return BadRequest(response);
+        }
 
+        response.IsSuccess = true;
+        response.ErrorMessage = "";
+        response.JwtToken = isVerified.JwtToken;
+        response.RefreshToken = isVerified.RefreshToken;
+ 
         return Ok(response);
     }
 
+
+    // verify token 
+    private async Task<RefreshTokenResponseDto> VerifyToken(RefreshTokenRequestDto request)
+    {
+        var response = new RefreshTokenResponseDto();
+        response.IsSuccess = false;
+        response.JwtToken = "";
+        response.RefreshToken = "";
+
+        // if any field is null, then retun false
+        if(request.JwtToken is "" || request.RefreshToken is "")
+        {
+            response.ErrorMessage = "Invalid request";
+            return response;
+        }
+
+        var tokenHandler = new JwtSecurityTokenHandler();
+
+        try
+        {
+            // check validity of the token
+            var principal = tokenHandler.ValidateToken(request.JwtToken, _tokenValidationParameters, out var validateToken);
+
+            // if the provided token is not a jwt token
+            if(validateToken is JwtSecurityToken jwtSecurityToken)
+            {
+                var verifyAlgorithm = jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase);
+                if(verifyAlgorithm is false)
+                {
+                    response.ErrorMessage = "Invalid token.";
+                    return response;
+                }
+            }
+            else
+            {
+                response.ErrorMessage = "Invalid token.";
+                return response;
+            }
+
+            // check jwt token expiry date
+            var utcExpiryDate = long.Parse(principal.Claims.FirstOrDefault(x => x.Type == JwtRegisteredClaimNames.Exp).Value);
+            var expiryDate = UnixTimeStampToDateTime(utcExpiryDate);
+
+            if(expiryDate > DateTime.UtcNow)
+            {
+                response.IsSuccess = true;
+                response.ErrorMessage = "";
+                response.RefreshToken = request.RefreshToken;
+                response.JwtToken = request.JwtToken;
+                return response;
+            }
+
+            // check if the refresh token is present in database
+            var refreshTokenExist = await _unitOfWork.RefreshTokens.GetByRefreshToken(request.RefreshToken);
+            if(refreshTokenExist is null)
+            {
+                response.ErrorMessage = "Invalid token";
+                return response;
+            }
+
+            // check refresh token expiry date
+            if(refreshTokenExist.DateExpire < DateTime.UtcNow)
+            {
+                response.ErrorMessage = "Expired token";
+                return response;
+            }
+
+            // check if the refresh token is already used
+            if (refreshTokenExist.IsUsed)
+            {
+                response.ErrorMessage = "Token has been used earlier";
+                return response;
+            }
+
+            // Check if paired with correct jwt token
+            if(refreshTokenExist.JwtToken != request.JwtToken)
+            {
+                response.ErrorMessage = "Invalid token";
+                return response;
+            }
+
+            // check if the right user is requesting
+            
+            var currentEmail = _httpContextAccessor.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier).Value;
+            var currentUser = await _userManager.FindByEmailAsync(currentEmail);
+            if (currentUser.Id != refreshTokenExist.IdentityUserId)
+            {
+                response.ErrorMessage = "Invalid token";
+                return response;
+            }
+
+            // if all checking is passed, then process a new token
+            var dbUser = await _unitOfWork.Users.GetUserByIdentityId(new Guid(currentUser.Id));
+            var newJwtToken = GenerateJwtToken(currentUser);
+            var newRefreshToken = new RefreshToken
+            {
+                Token = $"{RandomStringGenerator(25)}_{Guid.NewGuid()}",
+                JwtToken = newJwtToken,
+                IsUsed = false,
+                Status = true,
+                DateExpire = DateTime.UtcNow.AddMonths(1),
+                IdentityUserId = currentUser.Id.ToString()
+            };
+
+            var isMarked = await _unitOfWork.RefreshTokens.MarkTokenAsUsed(refreshTokenExist.Id);
+            var isAdded = await _unitOfWork.RefreshTokens.AddEntity(newRefreshToken);
+            if(isMarked && isAdded)
+            {
+                try
+                {
+                    await _unitOfWork.CompleteAsync();
+                    response.IsSuccess = true;
+                    response.ErrorMessage = "";
+                    response.JwtToken = newJwtToken;
+                    response.RefreshToken = newRefreshToken.Token;
+
+                    return response;
+                }
+                catch(Exception ex)
+                {
+                    response.IsSuccess = false;
+                    response.ErrorMessage = ex.Message;
+                    response.JwtToken = "";
+                    response.RefreshToken = "";
+                    return response;
+                } 
+            }
+
+            response.IsSuccess = false;
+            response.ErrorMessage = "Error processing your request.";
+            response.JwtToken = "";
+            response.RefreshToken = "";
+
+            return response;
+        }
+        catch(Exception ex)
+        {
+            response.ErrorMessage = ex.Message;
+            return response;
+        }
+    }
 
     // generate jwt token
     private string GenerateJwtToken(IdentityUser user)
@@ -219,7 +379,7 @@ public class AuthController : BaseController
                 new Claim(JwtRegisteredClaimNames.Name, user.Email),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()) // will be used bt the refresh token
             }),
-            Expires = DateTime.UtcNow.AddMonths(6),
+            Expires = DateTime.UtcNow.AddMinutes(5),
             SigningCredentials = new SigningCredentials(
                 new SymmetricSecurityKey(key),
                 SecurityAlgorithms.HmacSha256Signature
@@ -239,5 +399,13 @@ public class AuthController : BaseController
         const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         return new string(Enumerable.Repeat(chars, length)
             .Select(s => s[random.Next(s.Length)]).ToArray());
+    }
+
+    // converting a long int into actual datetime
+    private DateTime UnixTimeStampToDateTime(long unixTimeStamp)
+    {
+        var dateTime = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc);
+        dateTime = dateTime.AddSeconds(unixTimeStamp).ToUniversalTime();
+        return dateTime;
     }
 }

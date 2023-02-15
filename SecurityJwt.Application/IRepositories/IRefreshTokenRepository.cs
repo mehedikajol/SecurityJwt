@@ -10,4 +10,5 @@ namespace SecurityJwt.Application.IRepositories;
 public interface IRefreshTokenRepository : IGenericRepository<RefreshToken>
 {
     Task<bool> MarkTokenAsUsed(Guid id);
+    Task<RefreshToken> GetByRefreshToken(string refreshToken);
 }
