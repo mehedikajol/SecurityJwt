@@ -97,6 +97,17 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("ClientPermission", policy =>
+    {
+        policy.AllowAnyHeader()
+            .AllowAnyMethod()
+            .WithOrigins("http://localhost:3000")
+            .AllowCredentials();
+    });
+});
+
 // added dependencies
 builder.Services.AddSingleton(tokenValidationParameters);
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -110,7 +121,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-
+app.UseCors("ClientPermission");
 app.UseHttpsRedirection();
 
 app.UseAuthentication();

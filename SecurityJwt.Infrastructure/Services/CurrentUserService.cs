@@ -1,7 +1,9 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using IdentityModel;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using SecurityJwt.Application.IServices;
 using SecurityJwt.Infrastructure.DbContext;
+using System.Security.Claims;
 
 namespace SecurityJwt.Infrastructure.Services;
 
@@ -20,18 +22,25 @@ public class CurrentUserService : ICurrentUserService
 
     public async Task<string> GetCurrentUserEmail()
     {
-        var user = _httpContextAccessor.HttpContext.User;
-        if (user is null) return null;
-        var email = user.Identity.Name;
-        return email;
+        if(_httpContextAccessor?.HttpContext?.User?.Identity?.IsAuthenticated ?? false)
+        {
+            var user = _httpContextAccessor.HttpContext.User;
+            var claims = user.Claims.ToList();
+            var email = claims.FirstOrDefault(x => x.Type == ClaimTypes.Email).Value;
+            return email;
+        }
+        return null;
     }
 
     public async Task<string> GetCurrentUserId()
     {
-        var user = _httpContextAccessor.HttpContext.User;
-        if (user is null) return null;
-        var email = user.Identity.Name;
-        var userId = _context.Users.Where(x => x.Email == email).Select(x => x.Id).FirstOrDefaultAsync();
-        return userId.ToString();
+        if (_httpContextAccessor?.HttpContext?.User?.Identity?.IsAuthenticated ?? false)
+        {
+            var user = _httpContextAccessor.HttpContext.User;
+            var claims = user.Claims.ToList();
+            var userId = claims.FirstOrDefault(x => x.Type == JwtClaimTypes.Id).Value;
+            return userId;
+        }
+        return null;
     }
 }
