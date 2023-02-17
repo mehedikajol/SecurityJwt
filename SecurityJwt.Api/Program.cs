@@ -26,6 +26,7 @@ builder.Services.Configure<JwtConfig>(builder.Configuration.GetSection("JwtConfi
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddHttpContextAccessor();
 
 
 // added support for api versioning

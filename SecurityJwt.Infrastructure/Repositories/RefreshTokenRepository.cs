@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using SecurityJwt.Application.IRepositories;
 using SecurityJwt.Domain.Entities;
 using SecurityJwt.Infrastructure.DbContext;
@@ -14,6 +15,11 @@ public class RefreshTokenRepository : GenericRepository<RefreshToken>, IRefreshT
 {
     public RefreshTokenRepository(AppDbContext context, ILogger logger) : base(context, logger)
     {
+    }
+
+    public async Task<RefreshToken> GetByRefreshToken(string refreshToken)
+    {
+        return await _dbSet.Where(x => x.Token == refreshToken).FirstOrDefaultAsync();
     }
 
     public async Task<bool> MarkTokenAsUsed(Guid id)
