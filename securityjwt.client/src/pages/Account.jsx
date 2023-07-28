@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+import Profile from "./../components/Account/Profile";
 
 const Account = () => {
     return (
@@ -7,12 +8,14 @@ const Account = () => {
                 Account
             </p>
 
-            <div className="grid lg:grid-cols-3 gap-5 mb-16">
+            {/* <div className="grid lg:grid-cols-3 gap-5 mb-16">
                 <div className="rounded bg-gray-600 h-40 shadow-sm"></div>
                 <div className="rounded bg-gray-600 h-40 shadow-sm"></div>
                 <div className="rounded bg-gray-600 h-40 shadow-sm"></div>
             </div>
-            <div className="grid col-1 bg-gray-600 h-96 shadow-sm"></div>
+            <div className="grid col-1 bg-gray-600 h-96 shadow-sm"></div> */}
+
+            <Profile />
         </Fragment>
     );
 };

@@ -17,6 +17,15 @@ public class RefreshTokenRepository : GenericRepository<RefreshToken>, IRefreshT
     {
     }
 
+    public async Task<bool> DeleteUsedTokens(Guid userId)
+    {
+        var usedTokens = await _dbSet
+            .Where(x => x.IsUsed == true && x.IdentityUserId.ToLower() == userId.ToString().ToLower())
+            .ToListAsync();
+        _dbSet.RemoveRange(usedTokens);
+        return true;
+    }
+
     public async Task<RefreshToken> GetByRefreshToken(string refreshToken)
     {
         return await _dbSet.Where(x => x.Token == refreshToken).FirstOrDefaultAsync();

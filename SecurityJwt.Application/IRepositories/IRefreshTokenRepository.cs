@@ -11,4 +11,5 @@ public interface IRefreshTokenRepository : IGenericRepository<RefreshToken>
 {
     Task<bool> MarkTokenAsUsed(Guid id);
     Task<RefreshToken> GetByRefreshToken(string refreshToken);
+    Task<bool> DeleteUsedTokens(Guid userId);
 }

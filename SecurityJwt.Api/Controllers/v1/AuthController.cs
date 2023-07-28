@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -6,6 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 using SecurityJwt.Api.RequestDTOs;
 using SecurityJwt.Api.ResponseDTOs;
 using SecurityJwt.Application.IConfiguration;
+using SecurityJwt.Application.IServices;
 using SecurityJwt.Domain.Common;
 using SecurityJwt.Domain.Entities;
 using System;
@@ -16,25 +18,29 @@ using System.Text.RegularExpressions;
 
 namespace SecurityJwt.Api.Controllers.v1;
 
+[AllowAnonymous]
 public class AuthController : BaseController
 {
     private readonly UserManager<IdentityUser> _userManager;
     private readonly JwtConfig _jwtConfig;
-    private readonly TokenValidationParameters _tokenValidationParameters;
+    //private readonly TokenValidationParameters _tokenValidationParameters;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ICurrentUserService _currentUserService;
 
     public AuthController(
         IUnitOfWork unitOfWork,
         UserManager<IdentityUser> userManager,
         IOptionsMonitor<JwtConfig> optionsMonitor,
-        TokenValidationParameters tokenValidationParameters,
-        IHttpContextAccessor httpContextAccessor
+        //TokenValidationParameters tokenValidationParameters,
+        IHttpContextAccessor httpContextAccessor,
+        ICurrentUserService currentUserService
     ) : base(unitOfWork)
     {
         _userManager = userManager;
         _jwtConfig = optionsMonitor.CurrentValue;
-        _tokenValidationParameters = tokenValidationParameters;
+       // _tokenValidationParameters = tokenValidationParameters;
         _httpContextAccessor = httpContextAccessor;
+        _currentUserService = currentUserService;
     }
 
 
@@ -53,26 +59,26 @@ public class AuthController : BaseController
         if (!ModelState.IsValid)
         {
             response.ErrorMessage = "Invalid request.";
-            return BadRequest(response);
+            return Ok(response);
         }
 
         if(!passwordRegex.IsMatch(request.Password))
         {
             response.ErrorMessage = "Passwords not validated.";
-            return BadRequest(response);
+            return Ok(response);
         }
 
         if (request.Password != request.ConfirmPassword)
         {
             response.ErrorMessage = "Passwords do not match.";
-            return BadRequest(response);
+            return Ok(response);
         }
 
         var userExist = await _unitOfWork.Users.CheckIfUserExistByEmail(request.Email);
         if (userExist)
         {
             response.ErrorMessage = "Invalid request.";
-            return BadRequest(response);
+            return Ok(response);
         }
 
         var identityUser = new IdentityUser
@@ -87,7 +93,7 @@ public class AuthController : BaseController
         if (!isCreated.Succeeded)
         {
             response.ErrorMessage = "Error processing you request.";
-            return BadRequest(response);
+            return Ok(response);
         }
 
         var user = new User
@@ -139,33 +145,33 @@ public class AuthController : BaseController
         if (!ModelState.IsValid) 
         {
             response.ErrorMessage = "Invalid request.";
-            return BadRequest(response); 
+            return Ok(response); 
         }
 
         var identityUser = await _userManager.FindByEmailAsync(request.Email);
         if (identityUser is null)
         {
             response.ErrorMessage = "Email or password is not correct.";
-            return NotFound(response);
+            return Ok(response);
         }
 
         var user = await _unitOfWork.Users.GetUserByIdentityId(new Guid(identityUser.Id));
         if (user == null)
         {
             response.ErrorMessage = "Email or password is not correct.";
-            return NotFound(response);
+            return Ok(response);
         }
         if (user.Status == false) 
         {
             response.ErrorMessage = "Email or password is not correct.";
-            return BadRequest(response);
+            return Ok(response);
         }
 
         var isVerified = await _userManager.CheckPasswordAsync(identityUser, request.Password);
         if (!isVerified)
         {
             response.ErrorMessage = "Email or password is not correct.";
-            return BadRequest(response);
+            return Ok(response);
         }
 
         var token = GenerateJwtToken(identityUser);
@@ -242,8 +248,19 @@ public class AuthController : BaseController
 
         try
         {
+            var key = Encoding.ASCII.GetBytes(_jwtConfig.Secret);
+            var tokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new SymmetricSecurityKey(key),
+                ValidateIssuer = false, // TODO: will be set to true
+                ValidateAudience = false, // TODO: will be set to true
+                RequireExpirationTime = false, // TODO: will be set to true
+                ValidateLifetime = false,
+            };
+
             // check validity of the token
-            var principal = tokenHandler.ValidateToken(request.JwtToken, _tokenValidationParameters, out var validateToken);
+            var principal = tokenHandler.ValidateToken(request.JwtToken, tokenValidationParameters, out var validateToken);
 
             // if the provided token is not a jwt token
             if(validateToken is JwtSecurityToken jwtSecurityToken)
@@ -304,14 +321,11 @@ public class AuthController : BaseController
             }
 
             // check if the right user is requesting
-            
-            var currentEmail = _httpContextAccessor.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier).Value;
+
+            //var currentEmail = await _currentUserService.GetCurrentUserEmail();
+            var token = tokenHandler.ReadJwtToken(request.JwtToken);
+            var currentEmail = token.Claims.FirstOrDefault(c => c.Type == "sub").Value;
             var currentUser = await _userManager.FindByEmailAsync(currentEmail);
-            if (currentUser.Id != refreshTokenExist.IdentityUserId)
-            {
-                response.ErrorMessage = "Invalid token";
-                return response;
-            }
 
             // if all checking is passed, then process a new token
             var dbUser = await _unitOfWork.Users.GetUserByIdentityId(new Guid(currentUser.Id));
@@ -327,6 +341,7 @@ public class AuthController : BaseController
             };
 
             var isMarked = await _unitOfWork.RefreshTokens.MarkTokenAsUsed(refreshTokenExist.Id);
+            var isUsedTokensDeleted = await _unitOfWork.RefreshTokens.DeleteUsedTokens(new Guid(currentUser.Id));
             var isAdded = await _unitOfWork.RefreshTokens.AddEntity(newRefreshToken);
             if(isMarked && isAdded)
             {
@@ -379,7 +394,7 @@ public class AuthController : BaseController
                 new Claim(JwtRegisteredClaimNames.Name, user.Email),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()) // will be used bt the refresh token
             }),
-            Expires = DateTime.UtcNow.AddMinutes(5),
+            Expires = DateTime.UtcNow.AddMinutes(2),
             SigningCredentials = new SigningCredentials(
                 new SymmetricSecurityKey(key),
                 SecurityAlgorithms.HmacSha256Signature
